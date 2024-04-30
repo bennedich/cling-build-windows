@@ -14,10 +14,14 @@ Switch branch in `llvm-project` to `cling-latest` (or version of choice).
 
 
 ### Setup build environment
-Open up a `cmd` command prompt, create and cd into build folder, init build env:
+Open up a `cmd` command prompt and keep it open.  
+Create and cd into build folder:
 ```
 mkdir C:\dev\cling-build\
 cd C:\dev\cling-build\
+```
+Init build environment:
+```
 C:\"Program Files"\"Microsoft Visual Studio"\2022\Community\VC\Auxiliary\Build\vcvarsall.bat x64 10.0.22621.0 -vcvars_ver=14.37.32822
 ```
 For finding and executing `vcvarsall.bat` on your local machine:  
@@ -29,7 +33,9 @@ Lookup your local `vcvars_ver` (14.37.32822 above) in folder `C:\Program Files\M
 ### Build
 In the `cmd` command prompt from the previous step execute the following:
 ```
-cmake -G Ninja -DCMAKE_CXX_STANDARD=20 -DCMAKE_CXX_FLAGS_INIT="/D_SILENCE_ALL_CXX20_DEPRECATION_WARNINGS" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="./install/" -DLLVM_HOST_TRIPLE=x86_64-pc-win32-msvc -DLLVM_EXTERNAL_PROJECTS=cling -DLLVM_EXTERNAL_CLING_SOURCE_DIR=../cling/ -DLLVM_ENABLE_PROJECTS=clang -DLLVM_TARGETS_TO_BUILD="host;NVPTX" -DLLVM_BUILD_TOOLS=OFF -DCLANG_BUILD_TOOLS=OFF -Dbuiltin_llvm=ON -Dbuiltin_clang=ON ../llvm-project/llvm/
+cmake -G Ninja -DCMAKE_CXX_STANDARD=17 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="./install/" -DLLVM_HOST_TRIPLE=x86_64-pc-win32-msvc -DLLVM_EXTERNAL_PROJECTS=cling -DLLVM_EXTERNAL_CLING_SOURCE_DIR=../cling/ -DLLVM_ENABLE_PROJECTS=clang -DLLVM_TARGETS_TO_BUILD="host;NVPTX" -DLLVM_BUILD_TOOLS=OFF -DCLANG_BUILD_TOOLS=OFF -Dbuiltin_llvm=ON -Dbuiltin_clang=ON ../llvm-project/llvm/
+```
+```
 cmake --build . --target install
 ```
 
@@ -42,9 +48,11 @@ Copy the following files to where you want your cling installation to reside (pr
 .\include\cling\*
 .\lib\clang\16\include\*
 ```
+Consider adding the final install path to PATH.  
+And that's it! Enjoy!
 
 
-## The journey to discover a functioning build config
+## The journey to discovering the build config
 In build folder try running the following command:  
 ```
 cmake
@@ -270,7 +278,7 @@ cmake
 cmake --build . --config MinSizeRel --target install
 ```
 Now file size of `cling.exe` is down to 58 MB.  
-I prefer speed over size so let's not pursue that path any further.  
+I will benefit more from speed over size so let's not pursue that path any further.  
 Let's see if building with the MSVC generator works as well and what build size we get:
 ```
 cmake
@@ -309,9 +317,9 @@ Inspecting the custom LLVM project `llvm/CMakeLists.txt` tells us we build cling
 That clang version defaults to C++17 but should have partial C++20 support.  
 Executing `__cplusplus` in the cling REPL outputs `201703`, i.e. C++17.  
 So if we want C++20 we should try build with `-DCMAKE_CXX_STANDARD=20`.  
-The compiler immediately fires of a bunch of warnings we can suppress with `_SILENCE_ALL_CXX20_DEPRECATION_WARNINGS`.  
+The compiler immediately fires off a bunch of warnings we can suppress with `_SILENCE_ALL_CXX20_DEPRECATION_WARNINGS`.  
 Suppress warnings by specifying `CMAKE_CXX_FLAGS_INIT` which prepends to `CMAKE_CXX_FLAGS` instead of overriding it.  
-Final build config:
+Final build config for C++20:
 ```
 cmake
 	-G Ninja
@@ -333,5 +341,28 @@ cmake --build . --target install
 ```
 **It runs with C++20**  
 Executing `__cplusplus` in the cling REPL now outputs `202002` instead, i.e. C++20.  
-If wanting smaller builds at the cost of speed add `/Os` to `CMAKE_CXX_FLAGS_INIT`.  
+But it turns out executing some common `#include` instructions is significantly slower (almost twice as slow).  
+Trying to pinpoint the root cause I inspected some of the MSVC STL source files I directly and indirectly include.  
+I found some ifdefs causing more includes if C++20 or above so it might be just that.  
+I will benefit more from fast dev iterations so I will revert back to C++17 by keeping that build flag explicit.  
+Final build config for C++17:
+```
+cmake
+	-G Ninja
+	-DCMAKE_CXX_STANDARD=17
+	-DCMAKE_BUILD_TYPE=Release
+	-DCMAKE_INSTALL_PREFIX="./install/"
+	-DLLVM_HOST_TRIPLE=x86_64-pc-win32-msvc
+	-DLLVM_EXTERNAL_PROJECTS=cling
+	-DLLVM_EXTERNAL_CLING_SOURCE_DIR=../cling/
+	-DLLVM_ENABLE_PROJECTS=clang
+	-DLLVM_TARGETS_TO_BUILD="host;NVPTX"
+	-DLLVM_BUILD_TOOLS=OFF
+	-DCLANG_BUILD_TOOLS=OFF
+	-Dbuiltin_llvm=ON
+	-Dbuiltin_clang=ON
+	../llvm-project/llvm/
+cmake --build . --target install
+```
 So by that I guess we are done!  
+If wanting smaller builds at the cost of speed add `-DCMAKE_CXX_FLAGS_INIT="/Os"`.  
